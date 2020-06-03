@@ -18,6 +18,7 @@ namespace MSC_Save_Backup_Manager
     {
         string SavePath = "";
         string BackupFolder = "";
+        BackupFileItem[] backupFiles;
 
         public MSCSBM_Main()
         {
@@ -35,6 +36,8 @@ namespace MSC_Save_Backup_Manager
 
             //Create backup folder if necessary
             Directory.CreateDirectory(BackupFolder);
+
+            backupFiles = new BackupFileItem[0];
         }
 
         private void btnOpenBackups_Click(object sender, EventArgs e)
@@ -42,7 +45,7 @@ namespace MSC_Save_Backup_Manager
             Process.Start("explorer.exe", BackupFolder);
         }
 
-        private void updateTimestamp()
+        private void updateView()
         {
             //Grab the current save file timestamp
             FileInfo fi = new FileInfo(Path.Combine(SavePath, "defaultES2File.txt"));
@@ -60,6 +63,44 @@ namespace MSC_Save_Backup_Manager
                 btnPerformBackup.Enabled = false;
             }
 
+            //Search for backup files
+            string[] listFiles = Directory.GetFiles(BackupFolder, "*.zip");
+
+            tsStatus.Text = listFiles.Length.ToString() + " backup(s) found";
+
+            //Skip reloading the backup file list if it hasn't changed
+            if (listFiles.Length != backupFiles.Length)
+            {
+                backupFiles = new BackupFileItem[listFiles.Length];
+
+                for (int i = 0; i < listFiles.Length; i++)
+                {
+                    backupFiles[i] = new BackupFileItem();
+
+                    backupFiles[i].FilePath = listFiles[i];
+
+                    string fileName = Path.GetFileName(listFiles[i]);
+                    string fileDate = fileName.Substring(16, 19);
+                    string comment = "";
+
+                    if (fileName[35] == '_')
+                    {
+                        comment = " - " + fileName.Substring(36).Split('.')[0];
+                    }
+
+                    string fileTime = fileDate.Split('T')[1];
+                    fileTime = fileTime.Replace('-', ':');
+                    fileDate = fileDate.Split('T')[0] + "T" + fileTime;
+                    string displayName = DateTime.Parse(fileDate).ToString("g") + comment;
+                    backupFiles[i].DisplayName = displayName;
+
+                }
+
+                cbRestoreFile.Items.Clear();
+                cbRestoreFile.Items.AddRange(backupFiles);
+            }
+
+            btnPerformRestore.Enabled = !(listFiles.Length == 0);
         }
 
         private string GetKnownFolderPath(Guid knownFolderId)
@@ -85,7 +126,7 @@ namespace MSC_Save_Backup_Manager
         private void MSCSBM_Main_Activated(object sender, EventArgs e)
         {
             //Whenever we become the active window again, update the save timestamp(and disable/enable the button)
-            updateTimestamp();
+            updateView();
         }
 
         private void btnOpenSaves_Click(object sender, EventArgs e)
@@ -95,8 +136,11 @@ namespace MSC_Save_Backup_Manager
 
         private void btnPerformBackup_Click(object sender, EventArgs e)
         {
-            string BackupFileName = "MSC-Save-Backup_" + DateTime.Now.ToString("yyyy-MM-ddThh-mm-ss");
-            BackupFileName += (tbComment.Text != "") ? "_" + tbComment.Text : "";
+            string BackupFileName = "MSC-Save-Backup_" + DateTime.Now.ToString("yyyy-MM-ddTHH-mm-ss");
+            string comment = tbComment.Text;
+            if (comment.Length > 50) comment = comment.Substring(0, 50);
+
+            BackupFileName += (comment != "") ? "_" + comment : "";
             BackupFileName += ".zip";
 
             using (ZipArchive archive = ZipFile.Open(Path.Combine(BackupFolder, BackupFileName), ZipArchiveMode.Update))
@@ -105,7 +149,40 @@ namespace MSC_Save_Backup_Manager
                 archive.CreateEntryFromFile(Path.Combine(SavePath, "items.txt"), "items.txt");
             }
 
+            updateView();
             tsStatus.Text = "Backup Complete!";
+        }
+
+        private void btnPerformRestore_Click(object sender, EventArgs e)
+        {
+            BackupFileItem bfi = (BackupFileItem)cbRestoreFile.SelectedItem;
+
+            if (bfi == null)
+            {
+                tsStatus.Text = "Please select a file to restore.";
+                return;
+            }
+
+            using (ZipArchive archive = ZipFile.OpenRead(bfi.FilePath))
+            {
+                foreach (ZipArchiveEntry entry in archive.Entries)
+                {
+                    entry.ExtractToFile(Path.Combine(SavePath, entry.Name), true);
+                }
+            }
+
+            tsStatus.Text = "Restored backup " + bfi.DisplayName;
+        }
+    }
+
+    class BackupFileItem
+    {
+        public string FilePath { get; set; }
+        public string DisplayName { get; set; }
+
+        public override string ToString()
+        {
+            return DisplayName;
         }
     }
 }
