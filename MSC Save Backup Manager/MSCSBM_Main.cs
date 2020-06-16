@@ -145,21 +145,14 @@ namespace MSC_Save_Backup_Manager
 
             using (ZipArchive archive = ZipFile.Open(Path.Combine(BackupFolder, BackupFileName), ZipArchiveMode.Update))
             {
-                archive.CreateEntryFromFile(Path.Combine(SavePath, "defaultES2File.txt"), "defaultES2File.txt");
-                archive.CreateEntryFromFile(Path.Combine(SavePath, "items.txt"), "items.txt");
-
-                foreach (string fileName in Directory.GetFiles(SavePath, "*.xml"))
-                {
-                    archive.CreateEntryFromFile(fileName, Path.GetFileName(fileName));
-                }
-
-                foreach (string fileName in Directory.GetFiles(SavePath, "*.cfg"))
+                foreach (string fileName in Directory.GetFiles(SavePath))
                 {
                     archive.CreateEntryFromFile(fileName, Path.GetFileName(fileName));
                 }
             }
 
             updateView();
+            tsStatus.ForeColor = Color.Black;
             tsStatus.Text = "Backup Complete!";
         }
 
@@ -169,6 +162,7 @@ namespace MSC_Save_Backup_Manager
 
             if (bfi == null)
             {
+                tsStatus.ForeColor = Color.Black;
                 tsStatus.Text = "Please select a file to restore.";
                 return;
             }
@@ -177,10 +171,32 @@ namespace MSC_Save_Backup_Manager
             {
                 foreach (ZipArchiveEntry entry in archive.Entries)
                 {
-                    entry.ExtractToFile(Path.Combine(SavePath, entry.Name), true);
+                    try
+                    {
+                        entry.ExtractToFile(Path.Combine(SavePath, entry.Name), true);
+                    } 
+                    catch (System.UnauthorizedAccessException uae)
+                    {
+                        if(entry.Name == "meshsave.txt")
+                        {
+                            continue;
+                        }
+                        else
+                        {
+                            string errorMessage = "Unable to restore save file " + bfi.DisplayName;
+                            errorMessage += "\n\nError with file: " + entry.Name;
+                            errorMessage += "\n\n\n" + uae.ToString();
+                            MessageBox.Show(errorMessage, "Unable to restore", MessageBoxButtons.OK ,MessageBoxIcon.Error);
+
+                            tsStatus.ForeColor = Color.Red;
+                            tsStatus.Text = "Restore failed - " + bfi.DisplayName;
+                            return;
+                        }
+                    }
                 }
             }
 
+            tsStatus.ForeColor = Color.Black;
             tsStatus.Text = "Restored backup " + bfi.DisplayName;
         }
     }
