@@ -194,6 +194,7 @@
             this.statusStrip1.Name = "statusStrip1";
             this.statusStrip1.Padding = new System.Windows.Forms.Padding(1, 0, 19, 0);
             this.statusStrip1.Size = new System.Drawing.Size(613, 26);
+            this.statusStrip1.SizingGrip = false;
             this.statusStrip1.TabIndex = 3;
             this.statusStrip1.Text = "statusStrip1";
             // 
@@ -214,8 +215,10 @@
             this.Controls.Add(this.tabControl1);
             this.FormBorderStyle = System.Windows.Forms.FormBorderStyle.FixedSingle;
             this.Margin = new System.Windows.Forms.Padding(4);
+            this.MaximizeBox = false;
             this.Name = "MSCSBM_Main";
-            this.Text = "MSC Save Backup Manager v1.0";
+            this.SizeGripStyle = System.Windows.Forms.SizeGripStyle.Hide;
+            this.Text = "MSC Save Backup Manager v1.1";
             this.Activated += new System.EventHandler(this.MSCSBM_Main_Activated);
             this.tabControl1.ResumeLayout(false);
             this.tabPageBackup.ResumeLayout(false);

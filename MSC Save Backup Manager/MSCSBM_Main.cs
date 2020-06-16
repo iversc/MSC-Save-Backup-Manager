@@ -147,6 +147,16 @@ namespace MSC_Save_Backup_Manager
             {
                 archive.CreateEntryFromFile(Path.Combine(SavePath, "defaultES2File.txt"), "defaultES2File.txt");
                 archive.CreateEntryFromFile(Path.Combine(SavePath, "items.txt"), "items.txt");
+
+                foreach (string fileName in Directory.GetFiles(SavePath, "*.xml"))
+                {
+                    archive.CreateEntryFromFile(fileName, Path.GetFileName(fileName));
+                }
+
+                foreach (string fileName in Directory.GetFiles(SavePath, "*.cfg"))
+                {
+                    archive.CreateEntryFromFile(fileName, Path.GetFileName(fileName));
+                }
             }
 
             updateView();
