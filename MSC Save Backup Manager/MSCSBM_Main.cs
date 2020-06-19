@@ -19,10 +19,15 @@ namespace MSC_Save_Backup_Manager
         string SavePath = "";
         string BackupFolder = "";
         BackupFileItem[] backupFiles;
+        FileSystemWatcher saveWatcher;
+        int snapshotFileWatchStage = 0;
+        private delegate void SafeUpdateStatus(string newStatus, Color newColor);
+        private delegate void SafeUpdateView();
 
         public MSCSBM_Main()
         {
             InitializeComponent();
+            Debug.WriteLine("Test");
 
             //KNOWNFOLDERID of the LocalLow folder, for use in the SHGetKnownFolderPath Win32 API call.
             //
@@ -38,6 +43,13 @@ namespace MSC_Save_Backup_Manager
             Directory.CreateDirectory(BackupFolder);
 
             backupFiles = new BackupFileItem[0];
+
+            saveWatcher = new FileSystemWatcher(SavePath);
+            saveWatcher.NotifyFilter = NotifyFilters.LastWrite;
+            saveWatcher.Changed += SaveFileChanged;
+
+            numKeptSnapshots.Value = Properties.Settings.Default.SnapshotCount;
+            cbSnapshotEnabled.Checked = Properties.Settings.Default.SnapshotEnabled;
         }
 
         private void btnOpenBackups_Click(object sender, EventArgs e)
@@ -47,60 +59,68 @@ namespace MSC_Save_Backup_Manager
 
         private void updateView()
         {
-            //Grab the current save file timestamp
-            FileInfo fi = new FileInfo(Path.Combine(SavePath, "defaultES2File.txt"));
-
-            if (fi.Exists)
+            if (lblTimestamp.InvokeRequired)
             {
-                DateTime saveFileTime = fi.LastWriteTime;
-                lblTimestamp.Text = "Save Timestamp: " + saveFileTime.ToString("g");
-
-                btnPerformBackup.Enabled = true;
+                var d = new SafeUpdateView(updateView);
+                lblTimestamp.Invoke(d);
             }
             else
             {
-                lblTimestamp.Text = "!! No MSC save found !!";
-                btnPerformBackup.Enabled = false;
-            }
+                //Grab the current save file timestamp
+                FileInfo fi = new FileInfo(Path.Combine(SavePath, "defaultES2File.txt"));
 
-            //Search for backup files
-            string[] listFiles = Directory.GetFiles(BackupFolder, "*.zip");
-
-            tsStatus.Text = listFiles.Length.ToString() + " backup(s) found";
-
-            //Skip reloading the backup file list if it hasn't changed
-            if (listFiles.Length != backupFiles.Length)
-            {
-                backupFiles = new BackupFileItem[listFiles.Length];
-
-                for (int i = 0; i < listFiles.Length; i++)
+                if (fi.Exists)
                 {
-                    backupFiles[i] = new BackupFileItem();
+                    DateTime saveFileTime = fi.LastWriteTime;
+                    lblTimestamp.Text = "Save Timestamp: " + saveFileTime.ToString("g");
 
-                    backupFiles[i].FilePath = listFiles[i];
-
-                    string fileName = Path.GetFileName(listFiles[i]);
-                    string fileDate = fileName.Substring(16, 19);
-                    string comment = "";
-
-                    if (fileName[35] == '_')
-                    {
-                        comment = " - " + fileName.Substring(36).Split('.')[0];
-                    }
-
-                    string fileTime = fileDate.Split('T')[1];
-                    fileTime = fileTime.Replace('-', ':');
-                    fileDate = fileDate.Split('T')[0] + "T" + fileTime;
-                    string displayName = DateTime.Parse(fileDate).ToString("g") + comment;
-                    backupFiles[i].DisplayName = displayName;
-
+                    btnPerformBackup.Enabled = true;
+                }
+                else
+                {
+                    lblTimestamp.Text = "!! No MSC save found !!";
+                    btnPerformBackup.Enabled = false;
                 }
 
-                cbRestoreFile.Items.Clear();
-                cbRestoreFile.Items.AddRange(backupFiles);
-            }
+                //Search for backup files
+                string[] listFiles = Directory.GetFiles(BackupFolder, "*.zip");
 
-            btnPerformRestore.Enabled = !(listFiles.Length == 0);
+                tsStatus.Text = listFiles.Length.ToString() + " backup(s) found";
+
+                //Skip reloading the backup file list if it hasn't changed
+                if (listFiles.Length != backupFiles.Length)
+                {
+                    backupFiles = new BackupFileItem[listFiles.Length];
+
+                    for (int i = 0; i < listFiles.Length; i++)
+                    {
+                        backupFiles[i] = new BackupFileItem();
+
+                        backupFiles[i].FilePath = listFiles[i];
+
+                        string fileName = Path.GetFileName(listFiles[i]);
+                        string fileDate = fileName.Substring(16, 19);
+                        string comment = "";
+
+                        if (fileName[35] == '_')
+                        {
+                            comment = " - " + fileName.Substring(36).Split('.')[0];
+                        }
+
+                        string fileTime = fileDate.Split('T')[1];
+                        fileTime = fileTime.Replace('-', ':');
+                        fileDate = fileDate.Split('T')[0] + "T" + fileTime;
+                        string displayName = DateTime.Parse(fileDate).ToString("g") + comment;
+                        backupFiles[i].DisplayName = displayName;
+
+                    }
+
+                    cbRestoreFile.Items.Clear();
+                    cbRestoreFile.Items.AddRange(backupFiles);
+                }
+
+                btnPerformRestore.Enabled = !(listFiles.Length == 0);
+            }
         }
 
         private string GetKnownFolderPath(Guid knownFolderId)
@@ -134,11 +154,9 @@ namespace MSC_Save_Backup_Manager
             Process.Start("explorer.exe", SavePath);
         }
 
-        private void btnPerformBackup_Click(object sender, EventArgs e)
+        private void doBackup(string comment)
         {
             string BackupFileName = "MSC-Save-Backup_" + DateTime.Now.ToString("yyyy-MM-ddTHH-mm-ss");
-            string comment = tbComment.Text;
-            if (comment.Length > 50) comment = comment.Substring(0, 50);
 
             BackupFileName += (comment != "") ? "_" + comment : "";
             BackupFileName += ".zip";
@@ -150,6 +168,14 @@ namespace MSC_Save_Backup_Manager
                     archive.CreateEntryFromFile(fileName, Path.GetFileName(fileName));
                 }
             }
+        }
+
+        private void btnPerformBackup_Click(object sender, EventArgs e)
+        {
+            string comment = tbComment.Text;
+            if (comment.Length > 50) comment = comment.Substring(0, 50);
+
+            doBackup(comment);
 
             updateView();
             tsStatus.ForeColor = Color.Black;
@@ -198,6 +224,111 @@ namespace MSC_Save_Backup_Manager
 
             tsStatus.ForeColor = Color.Black;
             tsStatus.Text = "Restored backup " + bfi.DisplayName;
+        }
+
+        private string getSnapshotName(int snapshotNum)
+        {
+            string[] files = Directory.GetFiles(BackupFolder, "*_snapshot-" + snapshotNum + ".zip");
+
+            if (files.Length == 1)
+            {
+                return Path.GetFileName(files[0]);
+            }
+            else
+            {
+                return null;
+            }
+        }
+
+        private void rotateSnapshots()
+        {
+            int maxNum = Properties.Settings.Default.SnapshotCount;
+
+            for(int i = maxNum - 1; i >= 0; i--)
+            {
+                string oldFileName = getSnapshotName(i);
+                if (oldFileName == null) continue;
+
+                string[] nameParts = oldFileName.Split('_');
+                nameParts[2] = "snapshot-" + (i + 1) + ".zip";
+                string newFileName = String.Join("_", nameParts);
+
+                string existingSnapshotName = getSnapshotName(i + 1);
+                if (existingSnapshotName != null)
+                {
+                    File.Delete(Path.Combine(BackupFolder, existingSnapshotName));
+                }
+
+                File.Move(Path.Combine(BackupFolder, oldFileName),
+                    Path.Combine(BackupFolder, newFileName));
+ 
+            }
+        }
+
+        private void updateStatus(string newText, Color newColor)
+        {
+            if (statusStrip1.InvokeRequired)
+            {
+                var d = new SafeUpdateStatus(updateStatus);
+                statusStrip1.Invoke(d, new object[] { newText, newColor });
+            }
+            else
+            {
+                tsStatus.Text = newText;
+                tsStatus.ForeColor = newColor;
+            }
+        }
+        
+        private void SaveFileChanged(object source, FileSystemEventArgs e)
+        {
+            if (e.Name == "items.txt")
+            {
+                saveWatcher.Filter = "options.txt";
+            }
+
+            if (e.Name == "options.txt")
+            {
+                saveWatcher.Filter = "items.txt";
+
+                if (snapshotFileWatchStage == 1)
+                {
+                    saveWatcher.EnableRaisingEvents = false;
+
+                    string time = DateTime.Now.ToString("g");
+                    doBackup("snapshot-0");
+                    rotateSnapshots();
+ 
+                    updateView();
+
+                    updateStatus("New Snapshot Created " + time, Color.Black);
+
+                    snapshotFileWatchStage = 0;
+                    saveWatcher.EnableRaisingEvents = true;
+                }
+                else
+                {
+                    snapshotFileWatchStage = 1;
+                }
+            }
+        }
+
+        private void cbSnapshotEnabled_CheckedChanged(object sender, EventArgs e)
+        {
+            Properties.Settings.Default.SnapshotEnabled = cbSnapshotEnabled.Checked;
+            numKeptSnapshots.Enabled = cbSnapshotEnabled.Checked;
+
+            //saveWatcher.Filter = "items.txt";
+            saveWatcher.EnableRaisingEvents = cbSnapshotEnabled.Checked;
+        }
+
+        private void numKeptSnapshots_ValueChanged(object sender, EventArgs e)
+        {
+            Properties.Settings.Default.SnapshotCount = (int)numKeptSnapshots.Value;
+        }
+
+        private void MSCSBM_Main_FormClosed(object sender, FormClosedEventArgs e)
+        {
+            Properties.Settings.Default.Save();
         }
     }
 
