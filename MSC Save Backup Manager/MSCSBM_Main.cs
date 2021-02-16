@@ -193,6 +193,9 @@ namespace MSC_Save_Backup_Manager
                 return;
             }
 
+            //Disable auto-snapshot while performing restore
+            saveWatcher.EnableRaisingEvents = false;
+
             using (ZipArchive archive = ZipFile.OpenRead(bfi.FilePath))
             {
                 foreach (ZipArchiveEntry entry in archive.Entries)
@@ -221,6 +224,9 @@ namespace MSC_Save_Backup_Manager
                     }
                 }
             }
+
+            //Re-enable auto-snapshot if needed
+            saveWatcher.EnableRaisingEvents = cbSnapshotEnabled.Checked;
 
             tsStatus.ForeColor = Color.Black;
             tsStatus.Text = "Restored backup " + bfi.DisplayName;

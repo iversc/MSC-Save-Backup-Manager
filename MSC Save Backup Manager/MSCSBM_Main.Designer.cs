@@ -258,7 +258,7 @@
             this.MaximizeBox = false;
             this.Name = "MSCSBM_Main";
             this.SizeGripStyle = System.Windows.Forms.SizeGripStyle.Hide;
-            this.Text = "MSC Save Backup Manager v2.0";
+            this.Text = "MSC Save Backup Manager v2.0.1";
             this.Activated += new System.EventHandler(this.MSCSBM_Main_Activated);
             this.FormClosed += new System.Windows.Forms.FormClosedEventHandler(this.MSCSBM_Main_FormClosed);
             this.tabControl1.ResumeLayout(false);
