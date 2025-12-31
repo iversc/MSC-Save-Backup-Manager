@@ -14,13 +14,22 @@ using System.IO.Compression;
 
 namespace MSC_Save_Backup_Manager
 {
+    enum Game
+    {
+        MSC = 0,
+        MWC
+    }
     public partial class MSCSBM_Main : Form
     {
+        string MSCSavePath = "";
+        string MWCSavePath = "";
         string SavePath = "";
         string BackupFolder = "";
+        Game ChosenGame = Game.MSC;
         BackupFileItem[] backupFiles;
         FileSystemWatcher saveWatcher;
         int snapshotFileWatchStage = 0;
+        bool NewSnapshotFlag = false;
         private delegate void SafeUpdateStatus(string newStatus, Color newColor);
         private delegate void SafeUpdateView();
 
@@ -36,9 +45,18 @@ namespace MSC_Save_Backup_Manager
             Guid FOLDERID_LocalAppDataLow = new Guid("A520A1A4-1780-4FF6-BD18-167343C5AF16");
 
             //Set up our default paths
-            SavePath = Path.Combine(GetKnownFolderPath(FOLDERID_LocalAppDataLow), @"Amistech\My Summer Car");
-            BackupFolder = Path.Combine(SavePath, "backups");
+            MSCSavePath = Path.Combine(GetKnownFolderPath(FOLDERID_LocalAppDataLow), @"Amistech\My Summer Car");
+            MWCSavePath = Path.Combine(GetKnownFolderPath(FOLDERID_LocalAppDataLow), @"Amistech\My Winter Car");
 
+            SwitchGame(Game.MSC);
+        }
+
+        private void SwitchGame(Game game)
+        {
+            ChosenGame = game;
+
+            SavePath = (ChosenGame == Game.MSC) ? MSCSavePath : MWCSavePath;
+            BackupFolder = Path.Combine(SavePath, "backups");
             //Create backup folder if necessary
             Directory.CreateDirectory(BackupFolder);
 
@@ -46,10 +64,18 @@ namespace MSC_Save_Backup_Manager
 
             saveWatcher = new FileSystemWatcher(SavePath);
             saveWatcher.NotifyFilter = NotifyFilters.LastWrite;
-            saveWatcher.Changed += SaveFileChanged;
+            if (ChosenGame == Game.MSC)
+            {
+                saveWatcher.Changed += MSCSaveFileChanged;
+            }
+            else
+            {
+                saveWatcher.Changed += MWCSaveFileChanged;
+            }
 
             numKeptSnapshots.Value = Properties.Settings.Default.SnapshotCount;
             cbSnapshotEnabled.Checked = Properties.Settings.Default.SnapshotEnabled;
+            updateView();
         }
 
         private void btnOpenBackups_Click(object sender, EventArgs e)
@@ -67,7 +93,8 @@ namespace MSC_Save_Backup_Manager
             else
             {
                 //Grab the current save file timestamp
-                FileInfo fi = new FileInfo(Path.Combine(SavePath, "defaultES2File.txt"));
+                var saveFileName = (ChosenGame == Game.MSC) ? "defaultES2File.txt" : "savefile.txt";
+                FileInfo fi = new FileInfo(Path.Combine(SavePath, saveFileName));
 
                 if (fi.Exists)
                 {
@@ -78,7 +105,7 @@ namespace MSC_Save_Backup_Manager
                 }
                 else
                 {
-                    lblTimestamp.Text = "!! No MSC save found !!";
+                    lblTimestamp.Text = "!! No save found !!";
                     btnPerformBackup.Enabled = false;
                 }
 
@@ -88,7 +115,9 @@ namespace MSC_Save_Backup_Manager
                 tsStatus.Text = listFiles.Length.ToString() + " backup(s) found";
 
                 //Skip reloading the backup file list if it hasn't changed
-                if (listFiles.Length != backupFiles.Length)
+                //Snapshot flag check because rotating snapshots will leave the same number
+                //of backup files, but the files are different.
+                if ((listFiles.Length != backupFiles.Length) && !NewSnapshotFlag)
                 {
                     backupFiles = new BackupFileItem[listFiles.Length];
 
@@ -156,7 +185,8 @@ namespace MSC_Save_Backup_Manager
 
         private void doBackup(string comment)
         {
-            string BackupFileName = "MSC-Save-Backup_" + DateTime.Now.ToString("yyyy-MM-ddTHH-mm-ss");
+            var gameTag = (ChosenGame == Game.MSC) ? "MSC" : "MWC";
+            string BackupFileName = $"{gameTag}-Save-Backup_" + DateTime.Now.ToString("yyyy-MM-ddTHH-mm-ss");
 
             BackupFileName += (comment != "") ? "_" + comment : "";
             BackupFileName += ".zip";
@@ -165,6 +195,11 @@ namespace MSC_Save_Backup_Manager
             {
                 foreach (string fileName in Directory.GetFiles(SavePath))
                 {
+                    // Don't back up the steam cloud tag
+                    if (Path.GetFileName(fileName) == "steam_autocloud.vdf")
+                    {
+                        continue;
+                    }
                     archive.CreateEntryFromFile(fileName, Path.GetFileName(fileName));
                 }
             }
@@ -236,7 +271,7 @@ namespace MSC_Save_Backup_Manager
         {
             string[] files = Directory.GetFiles(BackupFolder, "*_snapshot-" + snapshotNum + ".zip");
 
-            if (files.Length == 1)
+            if (files.Length >= 1)
             {
                 return Path.GetFileName(files[0]);
             }
@@ -285,7 +320,7 @@ namespace MSC_Save_Backup_Manager
             }
         }
         
-        private void SaveFileChanged(object source, FileSystemEventArgs e)
+        private void MSCSaveFileChanged(object source, FileSystemEventArgs e)
         {
             if (e.Name == "items.txt")
             {
@@ -303,7 +338,7 @@ namespace MSC_Save_Backup_Manager
                     string time = DateTime.Now.ToString("g");
                     doBackup("snapshot-0");
                     rotateSnapshots();
- 
+
                     updateView();
 
                     updateStatus("New Snapshot Created " + time, Color.Black);
@@ -315,6 +350,45 @@ namespace MSC_Save_Backup_Manager
                 {
                     snapshotFileWatchStage = 1;
                 }
+            }
+        }
+
+        private void MWCSaveFileChanged(object source, FileSystemEventArgs e)
+        {
+            // For MWC, game finishes writing items2.txt, then writes options.txt eight times,
+            // then meshsave.txt four times, then options.txt again two times.
+            // 
+            // Since some people make meshsave.txt read only, we'll look for items2.txt, and then count 10 times for options.txt.
+
+            if (e.Name == "items2.txt")
+            {
+                snapshotFileWatchStage = 1;
+                saveWatcher.Filter = "options.txt";
+                return;
+            }
+
+            if (e.Name == "options.txt")
+            {
+                if (snapshotFileWatchStage == 0) return;
+                
+                if (snapshotFileWatchStage < 10)
+                {
+                    snapshotFileWatchStage++;
+                    return;
+                }
+
+                saveWatcher.EnableRaisingEvents = false;
+
+                string time = DateTime.Now.ToString("g");
+                doBackup("snapshot-0");
+                rotateSnapshots();
+
+                updateView();
+
+                updateStatus("New Snapshot Created " + time, Color.Black);
+
+                snapshotFileWatchStage = 0;
+                saveWatcher.EnableRaisingEvents = true;
             }
         }
 
@@ -335,6 +409,22 @@ namespace MSC_Save_Backup_Manager
         private void MSCSBM_Main_FormClosed(object sender, FormClosedEventArgs e)
         {
             Properties.Settings.Default.Save();
+        }
+
+        private void rbMSC_CheckedChanged(object sender, EventArgs e)
+        {
+            if (rbMSC.Checked)
+            {
+                SwitchGame(Game.MSC);
+            }
+        }
+
+        private void rbMWC_CheckedChanged(object sender, EventArgs e)
+        {
+            if (rbMWC.Checked)
+            {
+                SwitchGame(Game.MWC);
+            }
         }
     }
 
